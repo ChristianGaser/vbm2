@@ -1,0 +1,390 @@
+%
+% ________________________________________________________________________
+% VBM2 v1.08
+%   Christian Gaser
+%   christian.gaser@uni-jena.de
+%   dbm.neuro.uni-jena.de/vbm
+% 
+% ==========================================================================
+% Description
+% ==========================================================================
+% This toolbox is a collection of extensions to the segmentation algorithm 
+% of SPM2 (Wellcome Department of Cognitive Neurology) to provide voxel-
+% based morphometry (VBM). It is developed by Christian Gaser (University of 
+% Jena, Department of Psychiatry) and is available to the scientific 
+% community under the terms of the GNU General Public License.
+% 
+% Some files in the toolbox were previously distributed as VBM-tools 
+% (cg_create_template.m / cg_vbm_optimized.m) and were based on 
+% modifications of code snippets of John Ashburner to implement the so-
+% called optimized VBM protocol first proposed by Good et al. (2001). These 
+% files were extended by a couple of files in the toolbox to provide 
+% segmentation and statistical analysis of cross-sectional data as well as 
+% longitudinal data. The latter allow to track intra-subject effects over 
+% time by acquiring more than one scan per subject.
+% 
+% The key change to the SPM2 segmentation algorithms and the VBM-tools is 
+% the application of a Hidden Markov Random Field (HMRF) model. This model 
+% provides spatial constraints based on neighbouring voxels of a 3x3x3 cube. 
+% The idea is to remove isolated voxels of one tissue class which are 
+% unlikely to be member of this tissue type. This procedure also closes 
+% holes in a cluster of connected voxels of one tissue type. In the 
+% resulting segmentation the noise level will be minimized.
+% 
+% ==========================================================================
+% Creating customized template
+% ==========================================================================
+% It is recommended to use your own templates because:
+% 
+% 1) The contrast of your MR images might differ from the existing template.
+% 2) The demographics of your subject population might differ from those 
+%    used to generate the existing template.
+% 3) Each scanner introduces specific non-uniformities in image intensity 
+%    and inhomogeneities in B0 field.
+% 
+% This function will create a customized template (T1.img) and prior images 
+% of gray and white matter and CSF (gray.img/white.img/csf.img). These 
+% images are already smoothed with FWHM of 8 mm for use with the subsequent 
+% segmentation procedures.
+% 
+% After starting you will be asked to either segment images and create 
+% template and prior images or to use previously segmented images to create 
+% template and priors. 
+% The first option will calculate your template and the priors, but will 
+% also save the temporary (warped and the segmented) images. If you have 
+% created your template and your are not satisfied with this result you can 
+% use the second option to exclude some images from template calculation.
+% 
+% This function will save the following files:
+%   T1.img	customized T1 template, smoothed with FWHM of 8mm
+%   gray.img	gray matter prior image, smoothed with FWHM of 8mm
+%   white.img	white matter prior image, smoothed with FWHM of 8mm
+%   csf.img	CSF prior image, smoothed with FWHM of 8mm
+% 
+% and the temporary files (which can be removed after finishing the template
+% calculation):
+%   w*.img       warped raw image
+%   w*_seg1.img  gray matter of warped image
+%   w*_seg2.img  white matter of warped image
+%   w*_seg3.img  CSF of warped image
+% 
+% ==========================================================================
+% Cross-sectional data - Segmentation
+% ==========================================================================
+% The optimized VBM protocol of Good et al., 2001 extends the VBM procedure 
+% by the following ideas:
+% 1) Improving spatial normalization by use of gray matter images and a gray 
+%    matter template rather than anatomical (T1) images
+% 2) Cleaning up of partitions by applying morphological operations
+% 3) Optional modulation of partitions to preserve the total amount of 
+%    signal in the images
+% 
+% The segmentation function in VBM2 will normalize and segment your raw 
+% images according to  the optimized VBM procedure. You are asked for the 
+% raw (non-normalized) images to be analyzed and the template and prior 
+% images. If you have created a customized template select the new created 
+% T1.img image as T1 template for nonlinear normalization and the gray/
+% white/csf.img images as prior images respectively. Pay attention to the 
+% right order of your selections. The use of own prior images is recommended 
+% if the gray and white matter distribution is very different from a normal 
+% population (e.g. children, Alzheimer's disease).
+% 
+% This function will save the following files:
+%   w*.img        warped raw image
+%   Gw*.img       gray matter of warped raw image
+%   Ww*.img       white matter of warped raw image
+%   Cw*.img       CSF of warped raw image
+%   m[GWC]w*.img  modulated segmented image of warped raw image
+%   avgT1.img     average of warped T1 images
+% 
+% Modulation:
+% ----------------------------------------------
+% This step is intended to preserve the total amount of tissue in the 
+% images.
+% Areas that are expanded during warping are correspondingly reduced
+% in intensity. John Ashburner recommends this step if you are more
+% interested in volume changes than differences in concentration
+% (or density). Modulates images will be additionally saved indicated
+% by a leading 'm'. Nevertheless this postprocessing is optional and you can
+% try both, with and without modulationto test your hypothesis. The use of 
+% this step depends on your data and what are you interested in. If you 
+% decide to use modulation both images will be saved: non-modulated and 
+% modulated images (indicated by a leading 'm'.%
+% Another issue to consider is that modulation will additionally smooth your 
+% images and the resulting smoothness will be therefore increased. Hence, it 
+% is recommend to use a lower FWHM to smooth your modulated images. As rule 
+% of thumb: if you have used the default cutoff for spatial normalization 
+% (25 mm) you should lower the FWHM to around 70%. For example, if you have 
+% smoothed non-modulated images with FWHM of 12 mm you can smooth modulated 
+% images with 8-9 mm to obtain approximately the same resulting smoothness.
+% 
+% Use of customized prior images
+% ----------------------------------------------
+% Depending on your dataset it is sometimes useful to use cutomized prior 
+% images resulting fromthe create customized templates function. The use of 
+% own priors is recommended if the gray/white matter distribution of your 
+% sample differs from a control population (e.g. children, Alzheimer 
+% disease...).
+%
+% Mask raw lesions
+% ----------------------------------------------
+% There is a hidden function to use masks for lesions or other regions which 
+% should not contribute to the estimation of normalization parameters. If 
+% you want to use this option call cg_vbm_optimized(1).
+%
+% Clean up segmentations
+% ----------------------------------------------
+% Although prior information is used to restrict segmentation to the cortex 
+% there are still some misclassifications mainly at the border between gray 
+% matter and CSF. These rims can be tried to remove using morphological 
+% operations. Conditional dilations and erosions based on gray and white 
+% matter segmentations are used to create a mask to clean up the 
+% segmentations. It begins by taking the white matter, and eroding it a 
+% couple of times to get rid of any odd voxels.  The algorithm continues on 
+% to do conditional dilations for several iterations, where the condition is 
+% based upon gray or white matter being present. This identified region is 
+% then used to clean up the grey and white matter partitions, and has a 
+% slight influences on the CSF partition.
+%
+% ==========================================================================
+% Cross-sectional data asymmetry: calculate lateralization index
+% ==========================================================================
+%
+% In order to explore lateralization effects you have to process your raw 
+% images using a symmetrical template. After creating customized templates 
+% you can use the function "Cross-sectional data asymmetry: calculate 
+% lateralization index" from the "Segment" menu to calculate lateralization 
+% index of your segmentations. The GM template will be internally averaged 
+% with its mirrored image to obtain a symmetrical template indicated at the 
+% end of the filename by the term "_sym". This symmetric template will be 
+% now used to segment data and to calculate lateralization index (LI) using 
+% the following formula:
+%       LI = 2*(R-L)/(R+L)
+% The LI files are indicated by the prefix "LI_" and can be smoothed and 
+% used in the statistical analysis.
+%
+% ==========================================================================
+% Longitudinal data - Segmentation
+% ==========================================================================
+% 
+% The procedure is in general the same as described for cross-sectional 
+% data. 
+% The main difference is that all images of one subject will be registered 
+% to correct for position (but not size) and the normalization estimates are 
+% derived from the first (baseline) scan only. The estimated normalization 
+% parameters are then applied to all images of one subject. The idea of this 
+% procedure is that spatial normalization should not remove differences 
+% between the scans of one subject.
+% 
+% Additional bias correction between time points
+% ----------------------------------------------
+% Because longitudinal scans are often acquired with a large gap between the
+% time points this may cause different distributions of intensity nonuni-
+% formities. Although each scan will be corrected independently using bias 
+% correction subtle but systematical differences in the bias field remain 
+% and may influence results of segmentation. To minimize these intensity 
+% differences between the time points we approximate the difference bias 
+% field by using the intracraniel parts of the difference image which is 
+% smoothed with a very large gaussian kernel of around 30 mm. However, more 
+% exact methods might exist for this purpose.
+%
+% ==========================================================================
+% Hidden Markov Random Fields (HMRF)
+% ==========================================================================
+% 
+% We can optionally use prior information by applying a Hidden Markov Random 
+% Field (HMRF) model. Using this model we introduce spatial constraints 
+% based on neighbouring voxels of a 3x3x3 cube. The center voxel has 26 
+% neighbours and we can calculate MRF energy by counting the number of 
+% neighbours. The idea is to remove isolated voxels of one tissue class 
+% which are unlikely to be member of this tissue type. 
+%
+% This procedure also closes holes in a cluster of connected voxels of one 
+% tissue type. In the resulting segmentation the noise level will be 
+% lowered.
+%
+% Depending on your scanner and the used MR sequence your T1-images will 
+% contain at least 3% noise level. Hence, I would recommend for most images 
+% a medium HMRF weighting of 0.3. If your images are affected by more noise 
+% level you can choose a larger HMRF weighting.
+%
+% The resulting files are indicated by the term "_HMRF" at the end of the 
+% filename.
+% 
+% ==========================================================================
+% Statistical analysis
+% ==========================================================================
+% 
+% Smoothing
+% ----------------------------------------------
+% After the segmentation steps you have to smooth your data. For the first 
+% trial I would start with a FWHM of 12 mm. The filter width depends on what 
+% you want to see according to the Matched Filter Theorem. You can increase 
+% signal-to-noise ratio of your signal that is in the order of your filter 
+% size. For more focal effects you can decrease the filter width and if you 
+% expect larger effects try a larger filter size.
+% Keep in mind that modulation will additionally smooth your data and to 
+% obtain approximately the same resulting smoothness you should lower the 
+% FWHM to around 70% if you have applied the default cutoff for spation 
+% normalization (25 mm).
+% 
+% VBM Models
+% ----------------------------------------------
+% For the following statistical analysis you can use for almost all possibly 
+% designs the functions of this toolbox. In contrast to the "Basic models" 
+% some non-neccessary options are excluded. If you miss something you can 
+% still use the models provided with SPM2.
+% If you have only one group and 1 ore more covariates this is a (multiple) 
+% regression model. If you have more groups this corresponds either to an 
+% AnCova (with nuisance parameters) or Anova (without nuisance parameters). 
+% Additionally you can model group interactions with a covariate and at 
+% least two groups.
+% For longitudinal data the simplest model is a paired t-test for one group 
+% and 2 conditions (time points). However, you can also model more complex 
+% designs with varying number of conditions and more groups and/or 
+% covariates and nuisance parameters. 
+% 
+% Constraining your analysis to one tissue type
+% ----------------------------------------------
+% You should use an absolute threshold for masking around 0.1..0.15 (and 
+% finally up to 0.2). This prevents that you get (opposite) results in white 
+% matter although you only made an analysis for gray matter. This effect is 
+% due to the negative correlation of gray and white matter intensity values 
+% around the border between gray and white matter. If you choose an absolute 
+% threshold masking you will only compute your statistic in those areas that 
+% are above this threshold. Areas below this threshold will be excluded. Be 
+% careful if you get any result in white matter although you made an 
+% analysis of gray matter. These results are suspected to show an opposite 
+% effect.
+% A nice side-effect of using a higher absolute threshold (if you not cut 
+% off your clusters) is that the search area will be smaller which 
+% positively affects your p-values corrected for multiple comparisons.
+%
+% ==========================================================================
+% Check sample homogeneity using standard deviation across sample
+% ==========================================================================
+%
+% If you have a reasonable sample size artefacts are easily overseen. In 
+% order to identify images with poor image quality or even artefacts you can 
+% use the function "Check sample homogeneity using standard deviation across 
+% sample". 
+% To use this function images have to be in the same orientation with same 
+% voxel size and dimension (e.g. normalized images).
+% The idea of this tool is to check the standard deviation across the 
+% sample. 
+% Standard deviation is caclulated by the sum of the squared distance of 
+% each image from the sample mean. Hence, the squared distance of one image 
+% from the sample mean represents the amount to which this images deviates 
+% from the sample mean.
+% A large distance to mean does not always mean that this image is an 
+% outlier or contains an artefact. Usually images of patients are more 
+% deviant from the sample mean and this is what you try to localize. If 
+% there are no artefacts in the image and if the image quality is reasonable 
+% you don't have to exclude this image from the sample. This tool is 
+% intended to utilitize the process of quality checking and there is no 
+% clear criteria to exclude an images only based on squared distance to 
+% mean.
+% The squared distance to mean is calculated for each image and plotted 
+% using a boxplot and the indicated filenames. The larger the squared 
+% distance the more deviant is this image from the sample mean. In the 
+% "squared distance to mean plot" outliers from the sample are usually 
+% isolated from the majority of images which are clustered around the sample 
+% mean. The squared distance to mean is plotted at the y-axis and the x-axis 
+% reflects the image order. Images are plotted from left to right which is 
+% helpful if you have selected the images in the order of different sub-
+% groups. Furthermore this is also useful for fMRI images which can be also 
+% used with this tool.
+% The "proportional scaling" option should be only used if image intensity 
+% is not scaled (e.g. T1 images) or if images have to be scaled during 
+% statistical analysis (e.g. modulated images).
+% I recommend this tool for any images which are intended for statistical 
+% analysis (segmented images, fMRI images). Hence, I would use the smoothed, 
+% normalized images.
+% Optionally an output image will be save with standard deviation at every 
+% voxel to identify deviant regions.
+% After calculating the squared distance to mean the images with the largest 
+% distance can be displayed with help of the CheckReg function.
+%
+% ==========================================================================
+% Display one slice for all images
+% ==========================================================================
+%
+% This function displays a selected slice for all images and indicates the 
+% respective filenames which is useful to check image quality for a large 
+% number of files in a circumscribed region (slice).
+%
+% ==========================================================================
+% Calculate raw volumes for GM/WM/CSF
+% ==========================================================================
+% 
+% A file "vbm_volumes.txt" is saved in the actual directory with the 
+% absolute volumes of gray/white matter and CSF (in ml). If this file 
+% already exists the new values will be appended.
+% You can use this function to read raw volumes from this file. This file 
+% can be also opened with Excel (or gnumeric) as text-file with tabs as 
+% delimiters. 
+% 
+% To get sure that the order in vbm_volumes.txt is according to the files 
+% that will be used in the design matrix you can order the volume values by 
+% selecting the respective files. This is helpful if the order in 
+% vbm_volumes.txt is different or the number of files differs.
+%
+% You can use these variables either as nuisance in an AnCova model or as 
+% user-specified globals with the "global calculation" option. Depending on 
+% your hypothesis and/or your data you can just use gray matter ("gm") or 
+% calculate the sum of gray/white matter with "gm+wm". The use of raw 
+% volumes as nuisance or globals is only recommended for modulated data. 
+% These data are corrected for size changes due to spatial  normalization 
+% and are thought to be in raw (un-normalized) space. In contrast, un-
+% modulated data are yet corrected for differences in size due to spatial 
+% normalization to a reference brain and there is no need to correct for 
+% these differences again.
+% 
+% ==========================================================================
+% Threshold and transform spmT-maps
+% ==========================================================================
+% 
+% This functions enables the transformation of spmT-maps to correlation 
+% coefficient, effect-size, p-value, or log p-value. For the last case of 
+% log transformation this means that a p-value of p=0.99 (0.01) is 
+% transformed to a value of 2.
+%
+% Examples:
+% p-value   -log10(1-P)
+% 0.1        1
+% 0.05       1.3
+% 0.01       2
+% 0.001      3
+% 0.0001     4
+%
+% All maps can be thresholded using height and extent thresholds and you can 
+% also apply corrections for multiple comparisons based on family-wise error 
+% (FWE) or false discovery rate (FDR). You can easily threshold and/or 
+% transform a large number of spmT-maps using the same thresholds.
+%
+% Naming convention of the transformed files:
+%   Type_Contrast_Pheight_Pextent_K_Neg
+%
+%   Type:      P    - p-value
+%              logP - log p-value
+%              R    - correlation coefficient
+%              D    - effect size
+%              T    - t-value
+%
+%   Contrast:  name used in the contrast manager with replaced none valid 
+%              strings
+%    
+%   Pheight:   p    - uncorrected p-value in % (p<0.05 will coded with "p5")
+%              pFWE - p-value with FWE correction in %
+%              pFDR - p-value with FDR correction in %
+%              
+%   Pextent:   pk    - uncorr. extent p-value in % (p<0.05 coded with "p5")
+%              pkFWE - extent p-value with FWE correction in %
+%
+%   K:         extent threshold in voxels
+%
+%   Neg:       image also shows thresholded inverse effects (e.g. neg. 
+%              values) 
+% 
+% __________________________________________________________________________
+%                                                Christian Gaser 2006/08/10

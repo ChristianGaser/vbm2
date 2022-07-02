@@ -1,0 +1,12 @@
+VBM2 Toolbox version v1.08
+Christian Gaser | christian.gaser@uni-jena.de | dbm.neuro.uni-jena.de/vbm
+
+======================================================================
+Installation
+======================================================================
+
+First unpack the zip-file. Now, you have two options for using VBM2 within SPM.
+
+First (and recommended), you can copy or link the vbm2 folder to the spm2/toolbox directory. You can start the toolbox by selecting "vbm2" from the toolbox button on the SPM interface after restarting spm.
+
+Second, you can add the vbm2 folder to your matlab path and can start from the matlab prompt with the command "spm_vbm2".
